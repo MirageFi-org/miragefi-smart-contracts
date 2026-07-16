@@ -9,3 +9,16 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 100
 via_ir = true
+
+remappings = [
+    "@openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.2.0/",
+    "forge-std/=dependencies/forge-std-1.9.7/src/",
+]
+
+[dependencies]
+forge-std = "1.9.7"
+"@openzeppelin-contracts" = "5.2.0"
+
+[soldeer]
+remappings_generate = false
+remappings_regenerate = false
