@@ -26,3 +26,10 @@ script/Activity.s.sol         adds a round of multi-wallet activity (deposits, a
 test/                         Foundry suite: vault accounting, swap pricing, regimes and halts, RFQ, governance
 deployments/                  addresses written by the deploy script, one JSON file per chain ID
 ```
+
+## How a swap settles
+
+1. The trader calls `SwapRouter.swapExactIn` with the pair, an exact input, a minimum output and a deadline, optionally attaching a signed maker quote.
+2. The router checks the trader's `TRADER` attestation, re-derives the anchor vault's price from oracle and vault state in the same transaction, verifies the maker quote's signature if one was attached, and settles whichever venue outputs more.
+3. The vault prices from the formula: guarded Chainlink mid, tier half-spread times the session multiplier, signed inventory skew, itemised fee. Every fill emits its full breakdown, and nothing can settle outside the tier's oracle band on either venue.
+4. Token-to-token swaps run as two atomic legs through USDG; if either leg cannot clear inside its market's guards, both revert.
