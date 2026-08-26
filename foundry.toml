@@ -9,6 +9,7 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 100
 via_ir = true
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
 
 remappings = [
     "@openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.2.0/",
@@ -27,3 +28,11 @@ forge-std = "1.9.7"
 [soldeer]
 remappings_generate = false
 remappings_regenerate = false
+
+[rpc_endpoints]
+robinhood_testnet = "${ROBINHOOD_TESTNET_RPC}"
+robinhood = "${ROBINHOOD_RPC}"
+
+[etherscan]
+robinhood_testnet = { key = "${BLOCKSCOUT_API_KEY}", url = "${ROBINHOOD_TESTNET_BLOCKSCOUT_API}", chain = 46630 }
+robinhood = { key = "${BLOCKSCOUT_API_KEY}", url = "${ROBINHOOD_BLOCKSCOUT_API}", chain = 4663 }
