@@ -36,3 +36,6 @@ robinhood = "${ROBINHOOD_RPC}"
 [etherscan]
 robinhood_testnet = { key = "${BLOCKSCOUT_API_KEY}", url = "${ROBINHOOD_TESTNET_BLOCKSCOUT_API}", chain = 46630 }
 robinhood = { key = "${BLOCKSCOUT_API_KEY}", url = "${ROBINHOOD_BLOCKSCOUT_API}", chain = 4663 }
+
+[lint]
+exclude_lints = ["unsafe-typecast", "mixed-case-variable", "mixed-case-function", "pascal-case-struct"]
