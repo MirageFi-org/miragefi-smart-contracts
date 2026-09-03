@@ -44,6 +44,40 @@ forge test -vv
 
 Dependencies are managed by soldeer (no git submodules). Solidity 0.8.26, Cancun EVM, via-IR.
 
+## Deploying
+
+1. Copy `.env.example` to `.env` and fill in `PRIVATE_KEY`, the RPC URL for the target chain (`ROBINHOOD_TESTNET_RPC` or `ROBINHOOD_RPC`; the official URLs are listed at docs.robinhood.com/chain) and the matching Blockscout API URL for verification.
+2. Set `USDG`, `STOCK_TOKEN` and `STOCK_FEED` to the live addresses. On a local Anvil chain or the testnet they can be left blank to deploy mocks.
+3. Deploy. The RPC alias is `robinhood_testnet` for chain ID 46630 and `robinhood` for mainnet:
+
+```bash
+source .env
+forge script script/Deploy.s.sol --rpc-url robinhood_testnet --broadcast --verify
+```
+
+The script writes `deployments/<chainId>.json` with every address, opens the launch market and sets the documented launch parameters (Tier A: 10 bps half-spread, 75 bps band, 50,000 USDG clip; x1.5 extended and x3 closed session multipliers; 2 bps fees and a 10% spread share). Set `GOV` to hand ownership to the governance multisig and `FINISH_BOOTSTRAP=true` to lock parameters to the timelock. Whenever mocks are deployed and the deployer is the attestation issuer, the deployer attests itself for every role so the flows can be exercised immediately.
+
+`--verify` covers the eleven contracts the script deploys directly. The `AnchorVault` is deployed by the factory, so forge cannot recover its constructor arguments and Blockscout rejects the automatic submission. Verify it by hand with the addresses from the deployments file:
+
+```bash
+ARGS=$(cast abi-encode "constructor(address,address,address,address,address,address,string,string)" \
+  $PARAM_CONTROLLER $ELIGIBILITY_REGISTRY $ORACLE_ROUTER $FEE_COLLECTOR $USDG $STOCK_TOKEN \
+  "MirageFi NVDAx Vault" "zvNVDAx")
+forge verify-contract $ANCHOR_VAULT src/AnchorVault.sol:AnchorVault --chain 46630 \
+  --verifier blockscout --verifier-url "$ROBINHOOD_TESTNET_BLOCKSCOUT_API" --constructor-args "$ARGS" --watch
+```
+
+### Seeding a testnet deployment
+
+Both scripts read `deployments/<chainId>.json` and need the mock tokens, so they only apply to testnet or a local chain.
+
+```bash
+forge script script/Seed.s.sol --rpc-url robinhood_testnet --broadcast
+forge script script/Activity.s.sol --rpc-url robinhood_testnet --broadcast --slow
+```
+
+`Seed` mints balances for the deployer, deposits 500,000 USDG per side into the launch vault and puts one buy and one sell through the router. `Activity` derives two LP and five trader wallets from the deployer key, funds them with a small gas stipend, attests them, and runs two deposits, a partial withdrawal and twenty swaps in both directions. Every `Activity` run adds on top of the existing state; set `ROUND` to a new value each time so the trade sizes differ. Budget about 0.003 ETH on the deployer for a deploy plus one round of each, most of it the gas stipends.
+
 ## Governance model
 
 - `ParamController` starts in bootstrap mode: the owner can call setters directly. `finishBootstrap()` is irreversible and routes every change through `schedule` / `execute` with the configured delay.
