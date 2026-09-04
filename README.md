@@ -92,3 +92,13 @@ forge script script/Activity.s.sol --rpc-url robinhood_testnet --broadcast --slo
 - A fill may not leave a vault outside its inventory band, and the preview and the fill agree exactly, so the harmful side goes one-sided instead of absorbing unbounded inventory.
 - Every market is priced with the feed configured for the exact token in the vault, never a wrapper or a derived rate.
 - Quotes are itemised on-chain: the fill event carries mid, spread, skew and fee, matching what was quoted.
+
+## Notes for integrators
+
+- Approvals run against the router (traders) and `RfqSettlement` (makers); Permit2 and ERC-4337 batching sit above these contracts rather than inside them.
+- Deposits price the incoming assets at the guarded mid, so they revert while a market is halted; withdrawals read no oracle at all and never revert on market state.
+- `AnchorVault.quoteSwap` is the exact preview: it reverts while the market is halted, and the router treats that as "no vault quote" so RFQ can still carry the market.
+
+## Security
+
+The security programme (testing, audits, bounty and disclosure) is described in `docs/architecture/security.md`. Report vulnerabilities to security@miragefi.org rather than in public issues.
