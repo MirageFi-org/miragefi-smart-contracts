@@ -27,6 +27,35 @@ test/                         Foundry suite: vault accounting, swap pricing, reg
 deployments/                  addresses written by the deploy script, one JSON file per chain ID
 ```
 
+## Deployments
+
+### Robinhood Chain testnet (chain ID 46630)
+
+Deployed 9 September 2026 from `0x3750a184c4BdE99E129F51a4e9a853DDD86257D0`, which is also the bootstrap owner, guardian and attestation issuer on testnet. All twelve contracts are verified on [Blockscout](https://explorer.testnet.chain.robinhood.com). External dependencies are mocks: the deploy script stands in its own USDG, NVDAx stock token and Chainlink aggregator (NVDAx at 176.40 USDG). The full list is in `deployments/46630.json`.
+
+The launch vault is seeded with roughly 1,000,000 USDG of balanced liquidity and carries deposits, a withdrawal and a batch of fills from the seed and activity scripts, so the explorer and the platform have real history to show.
+
+| Contract | Address |
+| --- | --- |
+| SwapRouter | [`0xF03c1F25A312761df9fBA7a1c0f929628286584a`](https://explorer.testnet.chain.robinhood.com/address/0xF03c1F25A312761df9fBA7a1c0f929628286584a) |
+| RfqSettlement | [`0xf97941aaA5490Ad8d2e45A62f2662d7aF252A9Ef`](https://explorer.testnet.chain.robinhood.com/address/0xf97941aaA5490Ad8d2e45A62f2662d7aF252A9Ef) |
+| VaultFactory | [`0xEa43913350cd07aEFE87E38FeD7AAe4d636F5081`](https://explorer.testnet.chain.robinhood.com/address/0xEa43913350cd07aEFE87E38FeD7AAe4d636F5081) |
+| AnchorVault (NVDAx / USDG, `zvNVDAx`) | [`0xC8035f1F13ADd6b109d22B46f0D7eA21dC51C83f`](https://explorer.testnet.chain.robinhood.com/address/0xC8035f1F13ADd6b109d22B46f0D7eA21dC51C83f) |
+| OracleRouter | [`0x1B8247dCda39b1492A5D927861624CF942B01dAd`](https://explorer.testnet.chain.robinhood.com/address/0x1B8247dCda39b1492A5D927861624CF942B01dAd) |
+| EligibilityRegistry | [`0xb9B45C8A0108BB8D87B94FBa5B11E743fb36Ec5c`](https://explorer.testnet.chain.robinhood.com/address/0xb9B45C8A0108BB8D87B94FBa5B11E743fb36Ec5c) |
+| NativeAttestationAdapter | [`0x315479a50eA40bF2ef5536cF8563df715e215Dc3`](https://explorer.testnet.chain.robinhood.com/address/0x315479a50eA40bF2ef5536cF8563df715e215Dc3) |
+| ParamController | [`0x330537882A0275756D1021c6b4E96DE9A1dC72F2`](https://explorer.testnet.chain.robinhood.com/address/0x330537882A0275756D1021c6b4E96DE9A1dC72F2) |
+| FeeCollector | [`0x447329EfCEB5a4898949E19fB5D635C396280f02`](https://explorer.testnet.chain.robinhood.com/address/0x447329EfCEB5a4898949E19fB5D635C396280f02) |
+| USDG (mock) | [`0x69ea3faD03c7f52Cce6D8f2571EA40507Dc480Fb`](https://explorer.testnet.chain.robinhood.com/address/0x69ea3faD03c7f52Cce6D8f2571EA40507Dc480Fb) |
+| NVDAx stock token (mock) | [`0x049D8363Ac46cd065365568E18644f5eba37BcD5`](https://explorer.testnet.chain.robinhood.com/address/0x049D8363Ac46cd065365568E18644f5eba37BcD5) |
+| NVDAx / USD aggregator (mock) | [`0xE0F83ca2860e554207f680183646B904FfE8F100`](https://explorer.testnet.chain.robinhood.com/address/0xE0F83ca2860e554207f680183646B904FfE8F100) |
+
+The testnet deployment runs with the documented launch parameters, `TIMELOCK_DELAY=3600` and `FINISH_BOOTSTRAP=false`, so the deployer can still call the `ParamController` setters directly. The deployer is attested for every role (trader, LP, maker, relayer) so the flows can be exercised from that account straight away.
+
+### Robinhood Chain mainnet (chain ID 4663)
+
+Not yet deployed. Mainnet requires the live `USDG`, `STOCK_TOKEN`, `STOCK_FEED` and `SEQUENCER_FEED` addresses; the script refuses to deploy mocks on chain ID 4663.
+
 ## How a swap settles
 
 1. The trader calls `SwapRouter.swapExactIn` with the pair, an exact input, a minimum output and a deadline, optionally attaching a signed maker quote.
