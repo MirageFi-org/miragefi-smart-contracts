@@ -178,29 +178,27 @@ contract OracleRouter is IOracleRouter {
         q.updatedAt = uint64(updatedAt);
         q.session = _session(c);
         q.stale = block.timestamp - updatedAt > _stalenessBound(c, q.session);
-        q.paused = _checkpoints[token].paused || _sourcePaused(c);
+        // A print past the move cap reads as paused before anything persists it, so previews, fills and
+        // RFQ settlement all refuse the suspect round in the block it lands.
+        q.paused = _checkpoints[token].paused || _sourcePaused(c) || _beyondMoveCap(c, _checkpoints[token], q.price);
         q.multiplier = _multiplier(c);
         q.sequencerGrace = _sequencerGrace();
     }
 
     /// @inheritdoc IOracleRouter
+    /// @dev Permissionless. A fill that trips the cap reverts, and a revert unwinds every write it made,
+    ///      so the vault path alone can never persist the pause; anyone watching the feed can call this
+    ///      directly and make the halt outlive the move-cap window, until governance resumes the market.
     function refresh(address token) external override returns (Quote memory q) {
         q = quote(token);
         FeedConfig storage c = _feeds[token];
         Checkpoint storage cp = _checkpoints[token];
-        // The cap is there to catch a single bad print, so it only means something when the previous
-        // checkpoint is recent. Checkpoints are only written here, and on a quiet market that can be days
-        // ago, by which time an ordinary drift looks identical to a gap. Outside the window, re-baseline.
-        bool comparable = cp.lastPrice != 0 && c.moveCapBps != 0 && block.timestamp - cp.lastAt <= c.moveCapWindow;
-        if (comparable) {
-            uint256 last = cp.lastPrice;
-            uint256 diff = q.price > last ? q.price - last : last - q.price;
-            if (diff * Types.BPS / last > c.moveCapBps) {
+        if (_beyondMoveCap(c, cp, q.price)) {
+            if (!cp.paused) {
                 cp.paused = true;
-                q.paused = true;
-                emit MarketPausedEvent(token, last, q.price);
-                return q;
+                emit MarketPausedEvent(token, cp.lastPrice, q.price);
             }
+            return q;
         }
         cp.lastPrice = q.price.toUint128();
         cp.lastAt = uint40(block.timestamp);
@@ -277,6 +275,17 @@ contract OracleRouter is IOracleRouter {
             return Types.Session.Extended;
         }
         return Types.Session.Closed;
+    }
+
+    /// @dev The cap is there to catch a single bad print, so it only means something when the previous
+    ///      checkpoint is recent. Checkpoints are only written by `refresh`, and on a quiet market that can
+    ///      be days ago, by which time an ordinary drift looks identical to a gap. Outside the window the
+    ///      next refresh re-baselines instead.
+    function _beyondMoveCap(FeedConfig storage c, Checkpoint storage cp, uint256 price) internal view returns (bool) {
+        if (cp.lastPrice == 0 || c.moveCapBps == 0 || block.timestamp - cp.lastAt > c.moveCapWindow) return false;
+        uint256 last = cp.lastPrice;
+        uint256 diff = price > last ? price - last : last - price;
+        return diff * Types.BPS / last > c.moveCapBps;
     }
 
     function _stalenessBound(FeedConfig storage c, Types.Session s) internal view returns (uint256) {

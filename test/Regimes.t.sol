@@ -63,18 +63,48 @@ contract RegimesTest is BaseTest {
     function test_moveCapPausesMarketPendingReview() public {
         _swap(address(usdg), address(nvda), 1_000e6); // writes the first checkpoint
 
-        // A 30% print against a 25% cap: the preview still prices, but the fill's refresh trips the
-        // cap and the market pauses pending review instead of filling on the suspect round.
+        // A 30% print against a 25% cap reads as halted the moment it lands: the preview refuses it,
+        // so the router sees no vault quote, and a maker cannot settle against it either.
         nvdaFeed.set(int256(NVDA_PRICE_8 * 130 / 100));
-        vm.prank(trader);
         vm.expectRevert(AnchorVault.MarketHalted.selector);
+        nvdaVault.quoteSwap(true, 1_000e6);
+        vm.prank(trader);
+        vm.expectRevert(SwapRouter.NoLiquidity.selector);
         router.swapExactIn(_params(address(usdg), address(nvda), 1_000e6, 0));
+        assertFalse(oracle.checkpoint(address(nvda)).paused);
+
+        // A reverted fill cannot persist anything, so the pause is written by whoever calls refresh.
+        vm.expectEmit(true, false, false, true);
+        emit OracleRouter.MarketPausedEvent(address(nvda), NVDA_MID, NVDA_MID * 130 / 100);
+        vm.prank(outsider);
+        oracle.refresh(address(nvda));
+        assertTrue(oracle.checkpoint(address(nvda)).paused);
+
+        // Once persisted the halt outlives the move-cap window. Without it the suspect print would
+        // simply re-baseline after an hour and fill without anyone having reviewed it.
+        vm.warp(block.timestamp + 2 hours);
+        nvdaFeed.set(int256(NVDA_PRICE_8 * 130 / 100));
+        vm.expectRevert(AnchorVault.MarketHalted.selector);
+        nvdaVault.quoteSwap(true, 1_000e6);
 
         // Clearing the pause is a governance action with a published rationale. Resume re-baselines
         // the checkpoint, so trading restarts at the reviewed price without re-tripping the cap.
         vm.prank(gov);
         oracle.resume(address(nvda));
         assertGt(_swap(address(usdg), address(nvda), 1_000e6), 0);
+    }
+
+    function test_moveCapRebaselinesAfterTheWindow() public {
+        _swap(address(usdg), address(nvda), 1_000e6);
+
+        // The cap compares against a recent checkpoint only. A print that arrives after the window,
+        // however far from the last one, is ordinary drift on a quiet market and re-baselines.
+        vm.warp(block.timestamp + 2 hours);
+        nvdaFeed.set(int256(NVDA_PRICE_8 * 130 / 100));
+        (uint256 out,) = nvdaVault.quoteSwap(true, 1_000e6);
+        assertGt(out, 0);
+        assertGt(_swap(address(usdg), address(nvda), 1_000e6), 0);
+        assertEq(oracle.checkpoint(address(nvda)).lastPrice, NVDA_MID * 130 / 100);
     }
 
     function test_sequencerOutageAndGrace() public {
