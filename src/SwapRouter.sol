@@ -129,10 +129,12 @@ contract SwapRouter is ReentrancyGuard {
             if (p.quote.tokenIn != p.tokenIn || p.quote.tokenOut != p.tokenOut || p.quote.amountIn != p.amountIn) {
                 revert QuoteMismatch();
             }
-            // A candidate that expired in flight or was cancelled by its maker is a normal race, not a
-            // client error: price it as absent so the vault can still carry the fill. A malformed or
-            // badly signed candidate stays a loud revert in settlement.
-            bool usable = block.timestamp <= p.quote.expiry && !rfq.nonceUsed(p.quote.maker, p.quote.nonce);
+            // A candidate that expired in flight, was cancelled by its maker, or whose maker lost its
+            // attestation after quoting is a normal race, not a client error: price it as absent so the
+            // vault can still carry the fill. A malformed or badly signed candidate stays a loud revert
+            // in settlement.
+            bool usable = block.timestamp <= p.quote.expiry && !rfq.nonceUsed(p.quote.maker, p.quote.nonce)
+                && eligibility.isEligible(p.quote.maker, Roles.MAKER);
             if (usable) {
                 // The RFQ fee comes off the quote-token leg: on a buy the maker receives it out of the
                 // input, on a sell it is deducted from the trader's output. Compare what the trader

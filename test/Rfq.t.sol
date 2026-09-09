@@ -191,7 +191,7 @@ contract RfqTest is BaseTest {
         router.swapExactIn(p);
     }
 
-    function test_revokedMakerCannotSettle() public {
+    function test_revokedMakerFallsBackToVault() public {
         uint256 amountIn = 10_000e6;
         (uint256 vaultOut,) = nvdaVault.quoteSwap(true, amountIn);
         Types.MakerQuote memory q = _makerQuote(address(usdg), address(nvda), amountIn, vaultOut * 2, 8);
@@ -200,12 +200,18 @@ contract RfqTest is BaseTest {
         vm.prank(issuer);
         attestations.revoke(maker, Roles.MAKER);
 
-        SwapRouter.SwapParams memory p = _params(q.tokenIn, q.tokenOut, amountIn, 0);
-        p.quote = q;
-        p.quoteSig = sig;
-        vm.prank(trader);
+        // The maker's attestation went away between quoting and inclusion. Like a cancellation, that
+        // is the maker's race and not the trader's error: the candidate prices as absent and the vault
+        // carries the fill.
+        uint256 makerNvdaBefore = nvda.balanceOf(maker);
+        uint256 out = _swapWithQuote(q, sig, amountIn);
+        assertEq(out, vaultOut);
+        assertEq(nvda.balanceOf(maker), makerNvdaBefore);
+
+        // Settlement itself still refuses the maker, as defence in depth.
+        vm.prank(address(router));
         vm.expectRevert(abi.encodeWithSelector(IEligibilityRegistry.NotEligible.selector, maker, Roles.MAKER));
-        router.swapExactIn(p);
+        rfq.settle(q, sig, trader, trader);
     }
 
     function test_settleOnlyThroughRouter() public {
