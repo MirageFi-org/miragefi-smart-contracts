@@ -312,7 +312,9 @@ contract AnchorVault is ERC20, ReentrancyGuard {
             s.feeAmount = gross * fee.swapFeeBps / Types.BPS;
             s.amountOut = gross - s.feeAmount;
             s.protocolSpread = (midValue - gross) * fee.spreadShareBps / Types.BPS;
-            newQuoteBal = quoteBal - gross - s.protocolSpread + s.feeAmount;
+            // The fee is carved out of `gross` but leaves with the spread share, so the vault ends the
+            // fill short the whole of `gross` plus the spread share, exactly as `swap` pays it out.
+            newQuoteBal = quoteBal - gross - s.protocolSpread;
             newTokenVal = tokenValue + midValue;
         }
 

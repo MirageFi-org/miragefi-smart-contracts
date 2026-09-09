@@ -84,6 +84,39 @@ contract SwapTest is BaseTest {
         assertGt(out, 0);
     }
 
+    function test_sellSideBandSimulationMatchesTheFill() public {
+        // A fee large enough to move the inventory maths, a band wide enough to admit it, and a clip that
+        // lets a single sell reach the inventory band edge.
+        vm.startPrank(gov);
+        params.setFeeParams(IParamController.FeeParams({swapFeeBps: 1000, rfqFeeBps: 2, spreadShareBps: 1000}));
+        params.setTierConfig(
+            1,
+            IParamController.TierConfig({
+                baseHalfSpreadBps: 10,
+                maxSkewBps: 15,
+                inventoryBandBps: 2000,
+                oracleBandBps: 1100,
+                maxClip: 1_000_000e6,
+                enabled: true
+            })
+        );
+        vm.stopPrank();
+        nvda.mint(trader, 2_000e18);
+
+        // On a sell the fee is carved out of the gross proceeds but forwarded to the collector with the
+        // spread share, so the vault ends the fill short the whole gross. A 208k sell into a 500k/500k
+        // vault lands just past the 20% band on that accounting; had the fee been simulated as retained,
+        // the same sell would have previewed as inside the band and filled.
+        uint256 pastTheEdge = 208_000e6 * 1e18 / NVDA_MID;
+        vm.expectRevert(AnchorVault.InventoryBandExceeded.selector);
+        nvdaVault.quoteSwap(false, pastTheEdge);
+
+        // A sell that previews as inside the band leaves the vault inside it after the real transfers.
+        uint256 insideTheEdge = 190_000e6 * 1e18 / NVDA_MID;
+        _swap(address(nvda), address(usdg), insideTheEdge);
+        assertLe(nvdaVault.inventoryRatioBps() - 5_000, 2_000);
+    }
+
     function test_clipBoundsSingleSwap() public {
         vm.prank(trader);
         vm.expectRevert(SwapRouter.NoLiquidity.selector);
