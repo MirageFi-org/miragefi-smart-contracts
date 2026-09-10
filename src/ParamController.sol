@@ -15,6 +15,10 @@ contract ParamController is IParamController {
     // Governance state
     // ---------------------------------------------------------------------
 
+    /// @notice The shortest timelock the controller will lock itself to. Once bootstrap is finished the
+    ///         delay can never be set below this, and bootstrap cannot finish until the delay meets it.
+    uint256 public constant MIN_DELAY = 1 hours;
+
     address public override owner;
     address public override guardian;
     address public pendingOwner;
@@ -74,6 +78,7 @@ contract ParamController is IParamController {
     error CallFailed(uint256 index, bytes reason);
     error InvalidBps();
     error InvalidTier();
+    error InvalidCap();
     error DelayTooShort();
     error ZeroAddress();
 
@@ -150,6 +155,9 @@ contract ParamController is IParamController {
     /// @notice Lock the controller to the timelock. Irreversible.
     function finishBootstrap() external onlyOwner {
         if (bootstrapped) revert AlreadyBootstrapped();
+        // The floor in `setDelay` only applies once bootstrapped, so check it here too: locking in a
+        // shorter delay would leave a timelock that changes its own delay faster than anyone can react.
+        if (delay < MIN_DELAY) revert DelayTooShort();
         bootstrapped = true;
         emit BootstrapFinished();
     }
@@ -176,7 +184,7 @@ contract ParamController is IParamController {
     }
 
     function setDelay(uint256 delay_) external onlySelf {
-        if (bootstrapped && delay_ < 1 hours) revert DelayTooShort();
+        if (bootstrapped && delay_ < MIN_DELAY) revert DelayTooShort();
         delay = delay_;
         emit DelayChanged(delay_);
     }
@@ -208,12 +216,17 @@ contract ParamController is IParamController {
                 || (cfg.enabled && cfg.inventoryBandBps == 0)
                 || uint256(cfg.baseHalfSpreadBps) + cfg.maxSkewBps > cfg.oracleBandBps
         ) revert InvalidBps();
+        // An enabled tier with no clip refuses every fill; that is a market disabled by accident.
+        if (cfg.enabled && cfg.maxClip == 0) revert InvalidCap();
         _tiers[tier] = cfg;
         emit ParamChanged("tier", bytes32(uint256(tier)), abi.encode(cfg));
     }
 
     function setMarketConfig(address token, MarketConfig calldata cfg) external onlySelf {
         if (cfg.enabled && !_tiers[cfg.tier].enabled) revert InvalidTier();
+        // Likewise a zero daily cap refuses every fill and a zero TVL cap every deposit. Retiring a
+        // market is `enabled = false`, not a cap of zero.
+        if (cfg.enabled && (cfg.dailyVolumeCap == 0 || cfg.tvlCap == 0)) revert InvalidCap();
         _markets[token] = cfg;
         emit ParamChanged("market", bytes32(uint256(uint160(token))), abi.encode(cfg));
     }

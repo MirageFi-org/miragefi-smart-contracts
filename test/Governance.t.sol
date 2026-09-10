@@ -128,6 +128,64 @@ contract GovernanceTest is BaseTest {
         );
     }
 
+    function test_capsRefuseSelfDisablingConfigs() public {
+        // A tier that admits no clip, or a market with no daily or TVL headroom, is enabled in name only:
+        // every fill or deposit reverts on the cap. Refuse it up front rather than ship a dead market.
+        IParamController.TierConfig memory tier = params.tierConfig(1);
+        tier.maxClip = 0;
+        vm.prank(gov);
+        vm.expectRevert(ParamController.InvalidCap.selector);
+        params.setTierConfig(1, tier);
+
+        vm.prank(gov);
+        vm.expectRevert(ParamController.InvalidCap.selector);
+        params.setMarketConfig(
+            address(nvda), IParamController.MarketConfig({tier: 1, dailyVolumeCap: 0, tvlCap: 1e6, enabled: true})
+        );
+        vm.prank(gov);
+        vm.expectRevert(ParamController.InvalidCap.selector);
+        params.setMarketConfig(
+            address(nvda), IParamController.MarketConfig({tier: 1, dailyVolumeCap: 1e6, tvlCap: 0, enabled: true})
+        );
+
+        // Retiring is a flag, not a zero cap: a disabled market may carry any caps at all.
+        vm.prank(gov);
+        params.setMarketConfig(
+            address(nvda), IParamController.MarketConfig({tier: 1, dailyVolumeCap: 0, tvlCap: 0, enabled: false})
+        );
+        assertFalse(params.marketConfig(address(nvda)).enabled);
+    }
+
+    function test_bootstrapRequiresTheMinimumDelay() public {
+        // In bootstrap the owner may run a short delay to iterate, but cannot lock the controller to it.
+        vm.prank(gov);
+        params.setDelay(30 minutes);
+        vm.prank(gov);
+        vm.expectRevert(ParamController.DelayTooShort.selector);
+        params.finishBootstrap();
+
+        uint256 floor = params.MIN_DELAY();
+        vm.prank(gov);
+        params.setDelay(floor);
+        vm.prank(gov);
+        params.finishBootstrap();
+        assertTrue(params.bootstrapped());
+
+        // Once locked, the same floor holds for any delay change that goes through the timelock.
+        bytes[] memory calls = new bytes[](1);
+        calls[0] = abi.encodeCall(ParamController.setDelay, (30 minutes));
+        vm.prank(gov);
+        params.schedule(calls, bytes32("salt"), bytes32(0));
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(gov);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ParamController.CallFailed.selector, 0, abi.encodeWithSelector(ParamController.DelayTooShort.selector)
+            )
+        );
+        params.execute(calls, bytes32("salt"));
+    }
+
     function test_regimeValidationKeepsMultipliersHonest() public {
         // Session multipliers may only widen spreads and shrink clips.
         vm.prank(gov);
