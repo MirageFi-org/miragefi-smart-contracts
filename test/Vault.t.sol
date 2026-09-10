@@ -165,6 +165,27 @@ contract VaultTest is BaseTest {
         assertGt(tokenOut, 0);
     }
 
+    function test_disabledTierRetiresItsMarkets() public {
+        uint256 shares = _seed(nvdaVault, NVDA_MID);
+        IParamController.TierConfig memory tier = params.tierConfig(1);
+        tier.enabled = false;
+        vm.prank(gov);
+        params.setTierConfig(1, tier);
+
+        // A market is listed only while its tier is: pricing and deposits stop in one governance change...
+        vm.expectRevert(AnchorVault.MarketNotListed.selector);
+        nvdaVault.quoteSwap(true, 1_000e6);
+        vm.prank(lp2);
+        vm.expectRevert(AnchorVault.MarketNotListed.selector);
+        nvdaVault.deposit(1_000e6, 0, 0, lp2);
+
+        // ...and withdrawal, as in every other state, does not.
+        vm.prank(lp1);
+        (uint256 quoteOut, uint256 tokenOut) = nvdaVault.withdraw(shares, lp1);
+        assertGt(quoteOut, 0);
+        assertGt(tokenOut, 0);
+    }
+
     function test_quoteAssetCannotBeListed() public {
         // The router tells a swap's legs apart by which one is the quote asset, so a USDG/USDG vault
         // could never be addressed. The factory refuses it before any parameter or feed check.

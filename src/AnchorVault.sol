@@ -125,7 +125,7 @@ contract AnchorVault is ERC20, ReentrancyGuard {
         uint256 total = _totalValue(mid);
 
         IParamController.MarketConfig memory mkt = params.marketConfig(address(token));
-        if (!mkt.enabled) revert MarketNotListed();
+        if (!mkt.enabled || !params.tierConfig(mkt.tier).enabled) revert MarketNotListed();
         if (total + value > mkt.tvlCap) revert TvlCapExceeded();
 
         uint256 supply = totalSupply();
@@ -267,7 +267,10 @@ contract AnchorVault is ERC20, ReentrancyGuard {
 
         IParamController.MarketConfig memory mkt = params.marketConfig(address(token));
         if (!mkt.enabled) revert MarketNotListed();
+        // A market is listed only while its tier is. The controller refuses to list a market on a
+        // disabled tier, so disabling one retires every market on it in a single change.
         IParamController.TierConfig memory tier = params.tierConfig(mkt.tier);
+        if (!tier.enabled) revert MarketNotListed();
         IParamController.FeeParams memory fee = params.feeParams();
         (uint256 spreadMul, uint256 clipMul) = _regimeMultipliers(q.session);
 
