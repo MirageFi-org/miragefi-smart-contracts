@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import {BaseTest} from "./Base.t.sol";
 import {AnchorVault} from "../src/AnchorVault.sol";
+import {VaultFactory} from "../src/VaultFactory.sol";
 import {IParamController} from "../src/interfaces/IParamController.sol";
 import {IEligibilityRegistry} from "../src/interfaces/IEligibilityRegistry.sol";
 import {Roles} from "../src/libraries/Types.sol";
@@ -162,6 +163,14 @@ contract VaultTest is BaseTest {
         (uint256 quoteOut, uint256 tokenOut) = nvdaVault.previewWithdraw(shares);
         assertGt(quoteOut, 0);
         assertGt(tokenOut, 0);
+    }
+
+    function test_quoteAssetCannotBeListed() public {
+        // The router tells a swap's legs apart by which one is the quote asset, so a USDG/USDG vault
+        // could never be addressed. The factory refuses it before any parameter or feed check.
+        vm.prank(gov);
+        vm.expectRevert(VaultFactory.QuoteAssetNotListable.selector);
+        factory.createMarket(address(usdg));
     }
 
     function test_swapAccruesValuePerShare() public {
