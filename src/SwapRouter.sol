@@ -104,27 +104,65 @@ contract SwapRouter is ReentrancyGuard {
         emit Swapped(msg.sender, p.tokenIn, p.tokenOut, p.amountIn, amountOut, venue);
     }
 
+    /// @notice The fill `swapExactIn` would make for these params right now: the output the trader
+    ///         receives and the venue that wins, the RFQ candidate and two-leg composition included. It
+    ///         raises the same errors the fill would, so a client sizes and routes against one answer
+    ///         instead of re-deriving the comparison; only the deadline, eligibility and the candidate's
+    ///         signature are left to the call itself.
+    function previewExactIn(SwapParams calldata p) external view returns (uint256 amountOut, Types.Venue venue) {
+        if (params.swapsPaused()) revert SwapsPaused();
+        if (p.tokenIn == p.tokenOut) revert SameToken();
+        if (p.amountIn == 0) revert ZeroAmount();
+
+        if (p.tokenIn == quoteToken || p.tokenOut == quoteToken) {
+            (, uint256 vaultOut, uint256 rfqNet) = _priceLeg(p, p.tokenIn == quoteToken);
+            if (rfqNet > vaultOut) return (rfqNet, Types.Venue.Rfq);
+            if (vaultOut == 0) revert NoLiquidity();
+            return (vaultOut, Types.Venue.Vault);
+        }
+
+        if (p.quote.maker != address(0)) revert QuoteNotApplicable();
+        uint256 quoteOut = _vaultQuote(p.tokenIn, false, p.amountIn);
+        return (_vaultQuote(p.tokenOut, true, quoteOut), Types.Venue.Vault);
+    }
+
     // ---------------------------------------------------------------------
     // Internals
     // ---------------------------------------------------------------------
 
-    /// @dev Price the vault and the optional maker candidate, settle the better one. A halted or absent
-    ///      vault prices as zero rather than reverting, so RFQ can carry a market the vault cannot.
+    /// @dev Settle whichever of the vault and the optional maker candidate prices better for the trader.
     function _bestLeg(SwapParams calldata p, bool buyToken, address to)
         internal
         returns (uint256 amountOut, Types.Venue venue)
     {
-        address base = buyToken ? p.tokenOut : p.tokenIn;
-        address vault = factory.vaultOf(base);
+        (address vault, uint256 vaultOut, uint256 rfqNet) = _priceLeg(p, buyToken);
 
-        uint256 vaultOut;
+        if (rfqNet > vaultOut) {
+            IERC20(p.tokenIn).forceApprove(address(rfq), p.amountIn);
+            amountOut = rfq.settle(p.quote, p.quoteSig, msg.sender, to);
+            venue = Types.Venue.Rfq;
+        } else if (vaultOut > 0) {
+            amountOut = _vaultSwapAt(vault, buyToken, p.amountIn, to);
+            venue = Types.Venue.Vault;
+        } else {
+            revert NoLiquidity();
+        }
+    }
+
+    /// @dev Price the vault and the optional maker candidate the way the fill compares them. A halted or
+    ///      absent vault prices as zero rather than reverting, so RFQ can carry a market the vault cannot.
+    function _priceLeg(SwapParams calldata p, bool buyToken)
+        internal
+        view
+        returns (address vault, uint256 vaultOut, uint256 rfqNet)
+    {
+        vault = factory.vaultOf(buyToken ? p.tokenOut : p.tokenIn);
         if (vault != address(0)) {
             try AnchorVault(vault).quoteSwap(buyToken, p.amountIn) returns (uint256 out, Types.Breakdown memory) {
                 vaultOut = out;
             } catch {}
         }
 
-        uint256 rfqNet;
         if (p.quote.maker != address(0)) {
             if (p.quote.tokenIn != p.tokenIn || p.quote.tokenOut != p.tokenOut || p.quote.amountIn != p.amountIn) {
                 revert QuoteMismatch();
@@ -144,17 +182,13 @@ contract SwapRouter is ReentrancyGuard {
                     : p.quote.amountOut - p.quote.amountOut * params.feeParams().rfqFeeBps / Types.BPS;
             }
         }
+    }
 
-        if (rfqNet > vaultOut) {
-            IERC20(p.tokenIn).forceApprove(address(rfq), p.amountIn);
-            amountOut = rfq.settle(p.quote, p.quoteSig, msg.sender, to);
-            venue = Types.Venue.Rfq;
-        } else if (vaultOut > 0) {
-            amountOut = _vaultSwapAt(vault, buyToken, p.amountIn, to);
-            venue = Types.Venue.Vault;
-        } else {
-            revert NoLiquidity();
-        }
+    /// @dev A leg of a two-leg preview: the vault's own errors propagate, exactly as they do from the fill.
+    function _vaultQuote(address base, bool buyToken, uint256 amountIn) internal view returns (uint256 out) {
+        address vault = factory.vaultOf(base);
+        if (vault == address(0)) revert NoLiquidity();
+        (out,) = AnchorVault(vault).quoteSwap(buyToken, amountIn);
     }
 
     function _vaultSwap(address base, bool buyToken, uint256 amountIn, address to) internal returns (uint256) {

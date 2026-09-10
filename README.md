@@ -127,6 +127,7 @@ forge script script/Activity.s.sol --rpc-url robinhood_testnet --broadcast --slo
 - Approvals run against the router (traders) and `RfqSettlement` (makers); Permit2 and ERC-4337 batching sit above these contracts rather than inside them.
 - Deposits price the incoming assets at the guarded mid, so they revert while a market is halted; withdrawals read no oracle at all and never revert on market state.
 - `AnchorVault.quoteSwap` is the exact preview: it reverts while the market is halted, and the router treats that as "no vault quote" so RFQ can still carry the market.
+- `SwapRouter.previewExactIn` takes the same params as `swapExactIn` and returns the output and venue the fill would settle, RFQ candidate and two-leg composition included. It raises the errors the fill would raise, leaving only the deadline, eligibility and the candidate's signature to the call itself.
 - A feed print further than the move cap from a recent checkpoint halts the market in the block it lands, for previews, fills and RFQ settlement alike. `OracleRouter.refresh` is permissionless: calling it on a halted market writes the pause so it outlives the move-cap window, and only `resume` from governance clears it.
 
 ## Security

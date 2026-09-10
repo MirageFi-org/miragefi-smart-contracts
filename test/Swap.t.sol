@@ -172,6 +172,53 @@ contract SwapTest is BaseTest {
         assertEq(spy.balanceOf(trader), 100e18 + expected);
     }
 
+    function test_previewMatchesTheFill() public {
+        // Single leg through the vault.
+        SwapRouter.SwapParams memory p = _params(address(usdg), address(nvda), 10_000e6, 0);
+        (uint256 previewed, Types.Venue venue) = router.previewExactIn(p);
+        assertEq(uint8(venue), uint8(Types.Venue.Vault));
+        vm.prank(trader);
+        assertEq(router.swapExactIn(p), previewed);
+
+        // Two legs through the quote asset: the second leg is priced on what the first delivers.
+        p = _params(address(nvda), address(spy), 20e18, 0);
+        (previewed, venue) = router.previewExactIn(p);
+        assertEq(uint8(venue), uint8(Types.Venue.Vault));
+        vm.prank(trader);
+        assertEq(router.swapExactIn(p), previewed);
+
+        // A maker candidate that beats the vault previews as the RFQ venue at the trader's net output.
+        uint256 amountIn = 10_000e6;
+        (uint256 vaultOut,) = nvdaVault.quoteSwap(true, amountIn);
+        Types.MakerQuote memory q = _makerQuote(address(usdg), address(nvda), amountIn, vaultOut + vaultOut / 1000, 42);
+        p = _params(address(usdg), address(nvda), amountIn, 0);
+        p.quote = q;
+        p.quoteSig = _sign(q);
+        (previewed, venue) = router.previewExactIn(p);
+        assertEq(uint8(venue), uint8(Types.Venue.Rfq));
+        assertEq(previewed, q.amountOut);
+        vm.prank(trader);
+        assertEq(router.swapExactIn(p), previewed);
+    }
+
+    function test_previewRaisesTheFillsErrors() public {
+        // A halted market is no liquidity to the preview as it is to the fill.
+        nvda.setOraclePaused(true);
+        vm.expectRevert(SwapRouter.NoLiquidity.selector);
+        router.previewExactIn(_params(address(usdg), address(nvda), 1_000e6, 0));
+        nvda.setOraclePaused(false);
+
+        // On a two-leg swap the vault's own reason surfaces, here the clip on the selling leg.
+        vm.expectRevert(abi.encodeWithSelector(AnchorVault.ClipExceeded.selector, 300e18 * NVDA_MID / 1e18, 50_000e6));
+        router.previewExactIn(_params(address(nvda), address(spy), 300e18, 0));
+
+        // A candidate on a two-leg swap is a client error in both places.
+        SwapRouter.SwapParams memory p = _params(address(nvda), address(spy), 1e18, 0);
+        p.quote = _makerQuote(address(nvda), address(spy), 1e18, 1e18, 43);
+        vm.expectRevert(SwapRouter.QuoteNotApplicable.selector);
+        router.previewExactIn(p);
+    }
+
     function test_traderEligibilityEnforced() public {
         usdg.mint(outsider, 10_000e6);
         vm.startPrank(outsider);
