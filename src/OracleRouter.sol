@@ -75,6 +75,7 @@ contract OracleRouter is IOracleRouter {
 
     error NotGovernance();
     error InvalidFeedConfig();
+    error InvalidSchedule();
     error MarketHalted(address token);
     error StreamNotConfigured(address token);
     error StreamDivergence(uint256 feedPrice, uint256 streamPrice);
@@ -87,9 +88,11 @@ contract OracleRouter is IOracleRouter {
     constructor(IParamController params_) {
         params = params_;
         // US equities, UTC, standard time: regular 14:30 to 21:00, extended 09:00 to 01:00 next day.
-        schedule = Schedule({
+        Schedule memory s = Schedule({
             regularOpen: 14 hours + 30 minutes, regularClose: 21 hours, extendedOpen: 9 hours, extendedClose: 25 hours
         });
+        _validateSchedule(s);
+        schedule = s;
     }
 
     // ---------------------------------------------------------------------
@@ -146,6 +149,7 @@ contract OracleRouter is IOracleRouter {
     }
 
     function setSchedule(Schedule calldata s) external onlyGovernance {
+        _validateSchedule(s);
         schedule = s;
         emit ScheduleSet(s.regularOpen, s.regularClose, s.extendedOpen, s.extendedClose);
     }
@@ -241,6 +245,16 @@ contract OracleRouter is IOracleRouter {
     // ---------------------------------------------------------------------
     // Internals
     // ---------------------------------------------------------------------
+
+    /// @dev Seconds of a UTC day. The regular session sits inside the extended one, and the extended
+    ///      session may run past midnight but must close before its own next open. Anything else reads
+    ///      as no regular session at all, or as a day with no closed period, and neither is a schedule
+    ///      the session classifier can honour.
+    function _validateSchedule(Schedule memory s) internal pure {
+        if (s.regularOpen >= s.regularClose || s.regularClose > 1 days) revert InvalidSchedule();
+        if (s.extendedOpen > s.regularOpen || s.extendedClose < s.regularClose) revert InvalidSchedule();
+        if (s.extendedClose >= 1 days + s.extendedOpen) revert InvalidSchedule();
+    }
 
     function _scale(uint256 answer, uint8 fromDec, uint8 toDec) internal pure returns (uint256) {
         if (toDec >= fromDec) return answer * (10 ** (toDec - fromDec));

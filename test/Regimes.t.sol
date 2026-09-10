@@ -131,6 +131,41 @@ contract RegimesTest is BaseTest {
         nvdaVault.quoteSwap(true, 1_000e6);
     }
 
+    function test_scheduleRefusesImpossibleSessions() public {
+        // Regular hours that close before they open would classify every minute as extended or closed.
+        OracleRouter.Schedule memory s = OracleRouter.Schedule({
+            regularOpen: 21 hours, regularClose: 14 hours + 30 minutes, extendedOpen: 9 hours, extendedClose: 25 hours
+        });
+        vm.prank(gov);
+        vm.expectRevert(OracleRouter.InvalidSchedule.selector);
+        oracle.setSchedule(s);
+
+        // Regular hours must sit inside extended hours.
+        s = OracleRouter.Schedule({
+            regularOpen: 14 hours + 30 minutes, regularClose: 21 hours, extendedOpen: 15 hours, extendedClose: 25 hours
+        });
+        vm.prank(gov);
+        vm.expectRevert(OracleRouter.InvalidSchedule.selector);
+        oracle.setSchedule(s);
+
+        // An extended session that wraps into its own next open leaves the market with no closed period.
+        s = OracleRouter.Schedule({
+            regularOpen: 14 hours + 30 minutes, regularClose: 21 hours, extendedOpen: 9 hours, extendedClose: 33 hours
+        });
+        vm.prank(gov);
+        vm.expectRevert(OracleRouter.InvalidSchedule.selector);
+        oracle.setSchedule(s);
+
+        // The launch shape, extended hours wrapping past midnight, is accepted as it always was.
+        s = OracleRouter.Schedule({
+            regularOpen: 14 hours + 30 minutes, regularClose: 21 hours, extendedOpen: 9 hours, extendedClose: 25 hours
+        });
+        vm.prank(gov);
+        oracle.setSchedule(s);
+        (,,, uint32 extendedClose) = oracle.schedule();
+        assertEq(extendedClose, 25 hours);
+    }
+
     function test_feedConfigRefusesSelfDisablingGuards() public {
         // A zero staleness bound would mark every round stale and halt the market permanently.
         vm.prank(gov);
